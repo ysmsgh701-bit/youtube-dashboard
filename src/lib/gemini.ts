@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
-const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 export interface ShortsAnalysis {
   startTime: string;
@@ -19,12 +19,18 @@ export interface WeeklyItem {
   sourceUrl: string;
 }
 
+async function generate(prompt: string): Promise<string> {
+  const response = await genai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+  });
+  return (response.text ?? "").trim();
+}
+
 export async function analyzeForShorts(
   transcript: string,
   videoTitle = ""
 ): Promise<ShortsAnalysis> {
-  const model = genai.getGenerativeModel({ model: "gemini-1.5-flash" });
-
   const prompt = `당신은 정치/정책 유튜브 쇼츠 전문 편집자입니다.
 아래 자막에서 시청자 반응이 가장 폭발적일 1분 구간을 찾아주세요.
 
@@ -49,15 +55,12 @@ ${transcript.slice(0, 6000)}
   "category": "청문회 또는 브리핑 또는 격돌 또는 정책발표 또는 기타"
 }`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text().trim();
+  const text = await generate(prompt);
   const jsonStr = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   return JSON.parse(jsonStr) as ShortsAnalysis;
 }
 
 export async function generateWeeklyScript(items: WeeklyItem[]): Promise<string> {
-  const model = genai.getGenerativeModel({ model: "gemini-1.5-flash" });
-
   const summary = items
     .map((item, i) => `${i + 1}. ${item.title}\n${item.clipScript}`)
     .join("\n\n");
@@ -76,6 +79,5 @@ ${summary}
 
 대본만 출력 (제목·설명 없이 바로 시작):`;
 
-  const result = await model.generateContent(prompt);
-  return result.response.text().trim();
+  return generate(prompt);
 }
