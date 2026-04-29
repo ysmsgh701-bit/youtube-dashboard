@@ -10,8 +10,9 @@ export const maxDuration = 120; // 2분 타임아웃
 
 function runYtDlp(args: string[]): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((resolve) => {
-    // winget 설치 경로 우선 시도, 없으면 PATH에서 찾기
+    // 경로 우선순위: 프로젝트 bin → winget → PATH
     const candidates = [
+      path.join(process.cwd(), "bin", "yt-dlp.exe"),
       path.join(os.homedir(), "AppData", "Local", "Microsoft", "WinGet", "Links", "yt-dlp.exe"),
       "yt-dlp",
     ];
