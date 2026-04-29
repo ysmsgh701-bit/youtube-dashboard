@@ -14,18 +14,17 @@ const CATEGORY_COLOR: Record<string, string> = {
 interface Props {
   analysis: ShortsAnalysis;
   sourceUrl: string;
-  transcript: string;
   onAddToWeekly: (item: { title: string; clipScript: string; sourceUrl: string }) => void;
 }
 
-export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToWeekly }: Props) {
+export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Props) {
   const [selectedTitle, setSelectedTitle] = useState(0);
   const [editedScript, setEditedScript] = useState(analysis.clipScript);
   const [editedThumbnail, setEditedThumbnail] = useState(analysis.thumbnailText);
   const [copied, setCopied] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadResult, setDownloadResult] = useState<{
-    ok: boolean; text: string; thumbnailPath?: string; debug?: string;
+    ok: boolean; text: string; thumbnailPath?: string;
   } | null>(null);
 
   function copy(text: string, key: string) {
@@ -53,7 +52,6 @@ export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToW
           startTime: analysis.startTime,
           endTime: analysis.endTime,
           title: analysis.titles[selectedTitle],
-          transcript,
           thumbnailText: editedThumbnail,
         }),
       });
@@ -63,7 +61,6 @@ export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToW
         ok: true,
         text: `저장됨: ${data.videoPath}`,
         thumbnailPath: data.thumbnailPath,
-        debug: data.debug,
       });
     } catch (e) {
       setDownloadResult({ ok: false, text: e instanceof Error ? e.message : "다운로드 실패" });
@@ -207,8 +204,8 @@ export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToW
             className="w-full py-2.5 text-xs font-medium rounded-xl bg-green-900/40 hover:bg-green-900/60 disabled:opacity-50 text-green-400 border border-green-800 transition-colors"
           >
             {downloading
-              ? "⏳ 처리 중... (자막 소각 + 썸네일 생성 / 1~2분)"
-              : "⬇ 클립 완성 (자막 소각 + 썸네일 자동 생성)"}
+              ? "⏳ 다운로드 중... (썸네일 생성 포함 / 1~2분)"
+              : "⬇ 클립 다운로드 (썸네일 자동 생성)"}
           </button>
 
           {downloadResult && (
@@ -220,9 +217,6 @@ export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToW
               <p className="break-all">{downloadResult.text}</p>
               {downloadResult.ok && downloadResult.thumbnailPath && (
                 <p className="text-green-500">썸네일: {downloadResult.thumbnailPath}</p>
-              )}
-              {downloadResult.debug && (
-                <p className="text-gray-500 font-mono">[{downloadResult.debug}]</p>
               )}
             </div>
           )}

@@ -62,42 +62,8 @@ function secToTime(s: number): string {
   const sec = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
-function secToSRT(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  const ms = Math.round((sec - Math.floor(sec)) * 1000);
-  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ms).padStart(3,"0")}`;
-}
-
-// ─── SRT 생성 (클립 구간의 자막만, 상대 시간으로) ───
-function buildSRT(timedText: string, clipStartSec: number, clipEndSec: number): string {
-  const lines = timedText.split("\n").flatMap((line) => {
-    const m = line.match(/\[(\d{2}:\d{2}:\d{2})\] (.+)/);
-    if (!m || !m[2].trim()) return [];
-    return [{ sec: timeToSec(m[1]), text: m[2].trim() }];
-  });
-
-  const clip = lines.filter((l) => l.sec >= clipStartSec - 1 && l.sec <= clipEndSec + 1);
-  let srt = "";
-  let idx = 1;
-  for (let i = 0; i < clip.length; i++) {
-    const relStart = Math.max(0, clip[i].sec - clipStartSec);
-    const relEnd = clip[i + 1]
-      ? Math.min(clipEndSec - clipStartSec, clip[i + 1].sec - clipStartSec)
-      : relStart + 3;
-    if (relEnd <= relStart) continue;
-    srt += `${idx++}\n${secToSRT(relStart)} --> ${secToSRT(relEnd)}\n${clip[i].text}\n\n`;
-  }
-  return srt;
-}
 
 // ─── ffmpeg 필터용 경로 이스케이프 ───
-// subtitles 필터: 백슬래시→슬래시, 드라이브 콜론은 \\: 로 이스케이프
-function escapePath(p: string): string {
-  return p.replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1\\:");
-}
-// drawtext의 fontfile: 백슬래시→슬래시, 드라이브 콜론 이스케이프
 function escapeFontPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1\\:");
 }
@@ -110,7 +76,7 @@ export async function POST(req: NextRequest) {
   const tmpFiles: string[] = [];
 
   try {
-    const { videoId, startTime, endTime, title, transcript, thumbnailText } = await req.json();
+    const { videoId, startTime, endTime, title, thumbnailText } = await req.json();
     if (!videoId || !startTime || !endTime) {
       return NextResponse.json({ error: "videoId, startTime, endTime가 필요합니다." }, { status: 400 });
     }
@@ -130,10 +96,9 @@ export async function POST(req: NextRequest) {
 
     const rawVideo = path.join(clipsDir, `${safeTitle}_${timeTag}_raw.mp4`);
     const finalVideo = path.join(clipsDir, `${safeTitle}_${timeTag}.mp4`);
-    const srtFile = path.join(clipsDir, `${safeTitle}_${timeTag}.srt`);
     const thumbRaw = path.join(clipsDir, `${safeTitle}_${timeTag}_thumb_raw.jpg`);
     const thumbFinal = path.join(clipsDir, `${safeTitle}_${timeTag}_thumb.jpg`);
-    tmpFiles.push(rawVideo, srtFile, thumbRaw);
+    tmpFiles.push(rawVideo, thumbRaw);
 
     // ── STEP 1: 클립 다운로드 ──
     const dlResult = await run(YTDLP_PATH, [
@@ -151,52 +116,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `다운로드 실패: ${dlResult.stderr.slice(0, 300)}` }, { status: 500 });
     }
 
-    // ── STEP 2: 자막 소각 ──
-    let videoPath = rawVideo;
-    let subLog = "";
-    if (transcript) {
-      const srtContent = buildSRT(transcript, startSec, endSec);
-      if (srtContent.trim()) {
-        fs.writeFileSync(srtFile, srtContent, "utf8");
-
-        // subtitles 필터: Windows 경로 이스케이프 (드라이브 콜론 → \\:)
-        const escapedSrt = escapePath(srtFile);
-        const subStyle = [
-          "FontName=Malgun Gothic Bold",
-          "FontSize=20",
-          "Bold=1",
-          "PrimaryColour=&H00FFFFFF",
-          "OutlineColour=&H00000000",
-          "Outline=2",
-          "Alignment=2",
-          "MarginV=30",
-        ].join(",");
-
-        const subsFilter = `subtitles='${escapedSrt}':force_style='${subStyle}'`;
-        const subResult = await run(FFMPEG_PATH, [
-          "-i", rawVideo,
-          "-vf", subsFilter,
-          "-c:a", "copy",
-          "-y", finalVideo,
-        ]);
-        if (subResult.ok) {
-          videoPath = finalVideo;
-          subLog = "자막소각OK";
-        } else {
-          subLog = `자막소각실패: ${subResult.stderr.slice(0, 200)}`;
-          fs.copyFileSync(rawVideo, finalVideo);
-          videoPath = finalVideo;
-        }
-      } else {
-        subLog = "SRT없음(자막라인0)";
-        fs.copyFileSync(rawVideo, finalVideo);
-        videoPath = finalVideo;
-      }
-    } else {
-      subLog = "transcript없음";
-      fs.copyFileSync(rawVideo, finalVideo);
-      videoPath = finalVideo;
-    }
+    // ── STEP 2: raw → final 이름 변경 ──
+    fs.copyFileSync(rawVideo, finalVideo);
 
     // ── STEP 3: 썸네일 프레임 추출 (클립 시작 후 10초 지점) ──
     const thumbTimeSec = Math.min(10, (endSec - startSec) / 2);
@@ -255,7 +176,7 @@ export async function POST(req: NextRequest) {
       success: true,
       videoPath: finalVideo,
       thumbnailPath: fs.existsSync(finalThumb) ? finalThumb : null,
-      debug: subLog,
+
     });
   } catch (e: unknown) {
     for (const f of tmpFiles) {
