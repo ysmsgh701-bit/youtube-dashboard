@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import URLInput from "@/components/URLInput";
+import SearchBar from "@/components/SearchBar";
 import ShortsResult from "@/components/ChapterCard";
 import { ShortsAnalysis } from "@/lib/gemini";
 
@@ -23,6 +24,27 @@ export default function Home() {
   const [weeklyItems, setWeeklyItems] = useState<WeeklyItem[]>([]);
   const [weeklyScript, setWeeklyScript] = useState("");
   const [loadingWeekly, setLoadingWeekly] = useState(false);
+
+  async function analyzeUrl(url: string) {
+    setError("");
+    setLoading(true);
+    try {
+      // 1. 자막 추출
+      const tRes = await fetch("/api/transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const tData = await tRes.json();
+      if (!tRes.ok) throw new Error(tData.error);
+
+      // 2. Gemini 분석
+      await handleResult(tData.transcript, tData.videoId, url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "분석 실패");
+      setLoading(false);
+    }
+  }
 
   async function handleResult(transcript: string, videoId: string, url: string) {
     setError("");
@@ -83,9 +105,9 @@ export default function Home() {
       <header className="border-b border-gray-800 px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-white">정치 1분 요약 대시보드</h1>
+            <h1 className="text-xl font-bold text-white">유튜브 요약 대시보드</h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              KTV · 국회방송 URL → 자막 추출 → 최고 클립 구간 + 제목/해시태그 자동 생성
+              YouTube URL 검색 → 자막 추출 → 최고 클립 구간 + 제목 / 해시태그 + 구간 자동 다운로드
             </p>
           </div>
           {weeklyItems.length > 0 && (
@@ -97,13 +119,17 @@ export default function Home() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-        {/* URL 입력 */}
+
+        {/* 검색 */}
+        <SearchBar onSelect={analyzeUrl} loading={loading} />
+
+        {/* URL 직접 입력 */}
         <URLInput onResult={handleResult} loading={loading} />
 
         {/* 에러 */}
         {error && (
           <div className="bg-red-900/30 border border-red-800 rounded-2xl p-4">
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-red-400 text-sm whitespace-pre-line">{error}</p>
           </div>
         )}
 
@@ -115,14 +141,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* 분석 결과 카드들 */}
+        {/* 분석 결과 카드 */}
         {results.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-white">STEP 2 — 클립 검수 및 편집 준비</h2>
                 <p className="text-xs text-gray-500 mt-1">
-                  타임코드를 복사해 CapCut/Vrew에서 해당 구간을 잘라내세요. 제목·썸네일도 바로 수정 가능합니다.
+                  클립 다운로드 버튼으로 해당 구간을 바로 저장하거나, 타임코드를 복사해 CapCut/Vrew에서 사용하세요.
                 </p>
               </div>
             </div>
@@ -158,7 +184,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 수집된 이슈 목록 */}
             <div className="space-y-2">
               {weeklyItems.map((item, i) => (
                 <div key={i} className="flex items-start gap-3 bg-gray-800 rounded-xl p-3">
@@ -177,7 +202,6 @@ export default function Home() {
               ))}
             </div>
 
-            {/* 생성된 주간 대본 */}
             {weeklyScript && (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -202,18 +226,18 @@ export default function Home() {
           </div>
         )}
 
-        {/* 외부 툴 가이드 */}
+        {/* 편집 가이드 */}
         {results.length > 0 && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
             <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-3">편집 가이드</h3>
             <div className="space-y-2 text-xs text-gray-400 leading-relaxed">
               <p>
-                <span className="text-blue-400 font-medium">1. 컷 편집</span>
-                {" — "}위 타임코드를 복사 → CapCut 또는 Vrew에서 해당 구간만 잘라내기
+                <span className="text-green-400 font-medium">1. 클립 저장</span>
+                {" — "}⬇ 클립 다운로드 버튼 클릭 → ~/Downloads/clips/ 폴더에 mp4 자동 저장
               </p>
               <p>
-                <span className="text-green-400 font-medium">2. 자막</span>
-                {" — "}CapCut 자동 자막 (무료) 또는 Vrew 텍스트 편집 방식
+                <span className="text-blue-400 font-medium">2. 컷 편집</span>
+                {" — "}CapCut 또는 Vrew에서 저장된 mp4 파일 불러오기
               </p>
               <p>
                 <span className="text-yellow-400 font-medium">3. 썸네일</span>

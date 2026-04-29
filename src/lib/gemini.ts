@@ -19,19 +19,51 @@ export interface WeeklyItem {
   sourceUrl: string;
 }
 
+const MODELS = [
+  "gemini-2.5-flash",       // 우선 시도 (503이면 다음으로)
+  "gemini-2.5-flash-lite",  // 확인된 동작 모델
+  "gemini-flash-latest",    // 확인된 동작 모델
+  "gemini-2.0-flash",       // fallback
+];
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function generate(prompt: string): Promise<string> {
-  for (const model of ["gemini-2.5-flash", "gemini-2.0-flash"]) {
-    try {
-      const response = await genai.models.generateContent({ model, contents: prompt });
-      return (response.text ?? "").trim();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const isRetryable = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("429");
-      if (isRetryable) continue; // 다음 모델 시도
-      throw e;
+  let lastMsg = "";
+
+  for (const model of MODELS) {
+    // 모델당 최대 3번 재시도 (429 rate-limit 대비)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await genai.models.generateContent({ model, contents: prompt });
+        return (response.text ?? "").trim();
+      } catch (e: unknown) {
+        lastMsg = e instanceof Error ? e.message : String(e);
+        const isRetryable =
+          lastMsg.includes("503") ||
+          lastMsg.includes("UNAVAILABLE") ||
+          lastMsg.includes("429") ||
+          lastMsg.includes("overloaded") ||
+          lastMsg.includes("quota");
+
+        if (!isRetryable) throw e; // 인증오류 등 재시도 불필요
+
+        if (attempt < 3) {
+          // 같은 모델 재시도: 2s → 4s 대기
+          await sleep(attempt * 2000);
+        }
+        // 마지막 시도 실패 → 다음 모델로
+      }
     }
+    // 모델 전환 전 1초 대기
+    await sleep(1000);
   }
-  throw new Error("Gemini API가 일시적으로 혼잡합니다. 1~2분 후 다시 시도해주세요.");
+
+  throw new Error(
+    `Gemini API가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.\n(오류: ${lastMsg.slice(0, 80)})`
+  );
 }
 
 export async function analyzeForShorts(

@@ -22,11 +22,45 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
   const [editedScript, setEditedScript] = useState(analysis.clipScript);
   const [editedThumbnail, setEditedThumbnail] = useState(analysis.thumbnailText);
   const [copied, setCopied] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function copy(text: string, key: string) {
     navigator.clipboard.writeText(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 1500);
+  }
+
+  async function downloadClip() {
+    setDownloading(true);
+    setDownloadMsg(null);
+    // sourceUrl에서 videoId 추출
+    const match = sourceUrl.match(/[?&]v=([^&]+)/);
+    const videoId = match?.[1];
+    if (!videoId) {
+      setDownloadMsg({ ok: false, text: "영상 ID를 찾을 수 없습니다." });
+      setDownloading(false);
+      return;
+    }
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoId,
+          startTime: analysis.startTime,
+          endTime: analysis.endTime,
+          title: analysis.titles[selectedTitle],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setDownloadMsg({ ok: true, text: `저장됨: ${data.path}` });
+    } catch (e) {
+      setDownloadMsg({ ok: false, text: e instanceof Error ? e.message : "다운로드 실패" });
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const colorClass = CATEGORY_COLOR[analysis.category] ?? CATEGORY_COLOR["기타"];
@@ -154,6 +188,26 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
               {copied === "thumb" ? "복사됨!" : "복사"}
             </button>
           </div>
+        </div>
+
+        {/* 클립 다운로드 */}
+        <div className="space-y-2">
+          <button
+            onClick={downloadClip}
+            disabled={downloading}
+            className="w-full py-2.5 text-xs font-medium rounded-xl bg-green-900/40 hover:bg-green-900/60 disabled:opacity-50 text-green-400 border border-green-800 transition-colors"
+          >
+            {downloading ? "⏳ 다운로드 중... (1분 내외)" : "⬇ 클립 다운로드 (.mp4)"}
+          </button>
+          {downloadMsg && (
+            <p className={`text-xs px-3 py-2 rounded-lg break-all ${
+              downloadMsg.ok
+                ? "bg-green-900/20 text-green-400 border border-green-800"
+                : "bg-red-900/20 text-red-400 border border-red-800"
+            }`}>
+              {downloadMsg.text}
+            </p>
+          )}
         </div>
 
         {/* 주간 요약에 추가 */}
