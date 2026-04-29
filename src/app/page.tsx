@@ -9,6 +9,7 @@ import { ShortsAnalysis } from "@/lib/gemini";
 interface ResultItem {
   analysis: ShortsAnalysis;
   sourceUrl: string;
+  transcript: string;
 }
 
 interface WeeklyItem {
@@ -38,7 +39,7 @@ export default function Home() {
       const tData = await tRes.json();
       if (!tRes.ok) throw new Error(tData.error);
 
-      // 2. Gemini 분석
+      // 2. Gemini 분석 (transcript도 함께 전달)
       await handleResult(tData.transcript, tData.videoId, url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "분석 실패");
@@ -57,7 +58,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setResults((prev) => [{ analysis: data.analysis, sourceUrl: url }, ...prev]);
+      setResults((prev) => [{ analysis: data.analysis, sourceUrl: url, transcript }, ...prev]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "분석 실패");
     } finally {
@@ -158,6 +159,7 @@ export default function Home() {
                   key={i}
                   analysis={item.analysis}
                   sourceUrl={item.sourceUrl}
+                  transcript={item.transcript}
                   onAddToWeekly={handleAddToWeekly}
                 />
               ))}
@@ -228,25 +230,12 @@ export default function Home() {
 
         {/* 편집 가이드 */}
         {results.length > 0 && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-            <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-3">편집 가이드</h3>
-            <div className="space-y-2 text-xs text-gray-400 leading-relaxed">
-              <p>
-                <span className="text-green-400 font-medium">1. 클립 저장</span>
-                {" — "}⬇ 클립 다운로드 버튼 클릭 → ~/Downloads/clips/ 폴더에 mp4 자동 저장
-              </p>
-              <p>
-                <span className="text-blue-400 font-medium">2. 컷 편집</span>
-                {" — "}CapCut 또는 Vrew에서 저장된 mp4 파일 불러오기
-              </p>
-              <p>
-                <span className="text-yellow-400 font-medium">3. 썸네일</span>
-                {" — "}썸네일 텍스트 복사 → 캔바 또는 미리캔버스 뉴스 템플릿에 붙여넣기
-              </p>
-              <p>
-                <span className="text-purple-400 font-medium">4. 업로드</span>
-                {" — "}선택한 제목 + 해시태그 복사 → YouTube Studio 업로드
-              </p>
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 px-5 py-4">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
+              <span><span className="text-green-400">①저장</span> ~/Downloads/clips/</span>
+              <span><span className="text-blue-400">②편집</span> CapCut / Vrew</span>
+              <span><span className="text-yellow-400">③썸네일</span> 캔바 / 미리캔버스</span>
+              <span><span className="text-purple-400">④업로드</span> YouTube Studio</span>
             </div>
           </div>
         )}
