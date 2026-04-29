@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     await run(FFMPEG_PATH, [
       "-ss", thumbTime,
-      "-i", videoPath,
+      "-i", finalVideo,
       "-frames:v", "1",
       "-q:v", "2",
       "-y", thumbRaw,
