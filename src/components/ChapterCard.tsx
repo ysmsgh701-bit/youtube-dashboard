@@ -23,6 +23,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
   const [editedThumbnail, setEditedThumbnail] = useState(analysis.thumbnailText);
   const [copied, setCopied] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<{ step: number; total: number; message: string } | null>(null);
   const [downloadResult, setDownloadResult] = useState<{
     ok: boolean; text: string; thumbnailPath?: string;
   } | null>(null);
@@ -36,6 +37,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
   async function downloadClip() {
     setDownloading(true);
     setDownloadResult(null);
+    setProgress(null);
     const match = sourceUrl.match(/[?&]v=([^&]+)/);
     const videoId = match?.[1];
     if (!videoId) {
@@ -55,17 +57,39 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
           thumbnailText: editedThumbnail,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setDownloadResult({
-        ok: true,
-        text: `저장됨: ${data.videoPath}`,
-        thumbnailPath: data.thumbnailPath,
-      });
+      if (!res.body) throw new Error("스트림 없음");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === "progress") {
+            setProgress({ step: ev.step, total: ev.total, message: ev.message });
+          } else if (ev.type === "done") {
+            setDownloadResult({
+              ok: true,
+              text: `저장됨: ${ev.videoPath}`,
+              thumbnailPath: ev.thumbnailPath,
+            });
+          } else if (ev.type === "error") {
+            setDownloadResult({ ok: false, text: ev.message });
+          }
+        }
+      }
     } catch (e) {
       setDownloadResult({ ok: false, text: e instanceof Error ? e.message : "다운로드 실패" });
     } finally {
       setDownloading(false);
+      setProgress(null);
     }
   }
 
@@ -196,20 +220,41 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
           </div>
         </div>
 
-        {/* 클립 완성 (자막 소각 + 썸네일) */}
+        {/* 클립 다운로드 */}
         <div className="space-y-2">
           <button
             onClick={downloadClip}
             disabled={downloading}
             className="w-full py-2.5 text-xs font-medium rounded-xl bg-green-900/40 hover:bg-green-900/60 disabled:opacity-50 text-green-400 border border-green-800 transition-colors"
           >
-            {downloading
-              ? "⏳ 다운로드 중... (썸네일 생성 포함 / 1~2분)"
-              : "⬇ 클립 다운로드 (썸네일 자동 생성)"}
+            {downloading ? "⏳ 처리 중..." : "⬇ 클립 다운로드 (썸네일 자동 생성)"}
           </button>
 
+          {/* 진행 상태 */}
+          {downloading && progress && (
+            <div className="bg-gray-800 rounded-xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>{progress.message}</span>
+                <span className="font-mono text-gray-600">{progress.step}/{progress.total}</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-1">
+                <div
+                  className="bg-green-500 h-1 rounded-full transition-all duration-500"
+                  style={{ width: `${(progress.step / progress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {downloading && !progress && (
+            <div className="bg-gray-800 rounded-xl px-4 py-3 flex items-center gap-3">
+              <div className="w-3 h-3 border border-green-500 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-xs text-gray-400">연결 중...</span>
+            </div>
+          )}
+
+          {/* 결과 */}
           {downloadResult && (
-            <div className={`text-xs px-3 py-2 rounded-lg space-y-2 ${
+            <div className={`text-xs px-3 py-2 rounded-lg space-y-1 ${
               downloadResult.ok
                 ? "bg-green-900/20 text-green-400 border border-green-800"
                 : "bg-red-900/20 text-red-400 border border-red-800"
