@@ -23,7 +23,13 @@ export async function POST(req: NextRequest) {
 
     // 한국어 자막 우선, 없으면 기본 언어로 재시도
     const transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang: "ko" })
-      .catch(() => YoutubeTranscript.fetchTranscript(videoId));
+      .catch(() => YoutubeTranscript.fetchTranscript(videoId))
+      .catch(() => {
+        throw new Error(
+          "이 영상은 자막이 비활성화되어 있습니다.\n" +
+          "KTV/국회방송에서 CC(자막) 버튼이 있는 영상을 선택해주세요."
+        );
+      });
 
     // 타임스탬프 포함 텍스트 구성 (Gemini가 시간대를 파악할 수 있도록)
     const timedText = transcript
