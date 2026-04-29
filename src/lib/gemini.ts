@@ -71,7 +71,11 @@ export async function analyzeForShorts(
   videoTitle = ""
 ): Promise<ShortsAnalysis> {
   const prompt = `당신은 정치/정책 유튜브 쇼츠 전문 편집자입니다.
-아래 자막에서 시청자 반응이 가장 폭발적일 1분 구간을 찾아주세요.
+아래 자막에서 시청자 반응이 가장 폭발적일 구간을 찾아주세요.
+
+⚠️ 중요 규칙:
+- startTime과 endTime의 차이는 반드시 55초~65초 사이여야 합니다 (정확히 1분 분량)
+- 예: startTime이 00:02:10이면 endTime은 00:03:10~00:03:15 사이
 
 선택 기준:
 - 날카로운 질의·응답, 여야 격돌, 팩트 충돌이 일어나는 순간
@@ -85,7 +89,7 @@ ${transcript.slice(0, 6000)}
 반드시 JSON만 출력 (마크다운 없이):
 {
   "startTime": "HH:MM:SS",
-  "endTime": "HH:MM:SS",
+  "endTime": "HH:MM:SS",  ← startTime + 55~65초
   "clipScript": "해당 구간 핵심 발언 2~3문장 요약",
   "reason": "이 구간을 선택한 이유 1문장",
   "titles": ["제목1 (30자 이내, 숫자/충격 포함)", "제목2", "제목3", "제목4", "제목5"],
