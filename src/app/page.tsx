@@ -4,6 +4,7 @@ import { useState } from "react";
 import URLInput from "@/components/URLInput";
 import SearchBar from "@/components/SearchBar";
 import ShortsResult from "@/components/ChapterCard";
+import ManualGuide from "@/components/ManualGuide";
 import { ShortsAnalysis } from "@/lib/gemini";
 
 interface ResultItem {
@@ -226,17 +227,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* 편집 가이드 */}
-        {results.length > 0 && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 px-5 py-4">
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
-              <span><span className="text-green-400">①저장</span> ~/Downloads/clips/</span>
-              <span><span className="text-blue-400">②편집</span> CapCut / Vrew</span>
-              <span><span className="text-yellow-400">③썸네일</span> 캔바 / 미리캔버스</span>
-              <span><span className="text-purple-400">④업로드</span> YouTube Studio</span>
-            </div>
-          </div>
-        )}
+        {/* 수동 작업 가이드 */}
+        <ManualGuide />
       </main>
     </div>
   );
