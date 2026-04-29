@@ -1,8 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import Anthropic from "@anthropic-ai/sdk";
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 export interface ShortsAnalysis {
   startTime: string;
@@ -21,33 +19,19 @@ export interface WeeklyItem {
   sourceUrl: string;
 }
 
-async function generateWithClaude(prompt: string): Promise<string> {
-  const msg = await anthropic.messages.create({
-    model: "claude-sonnet-4-5",
-    max_tokens: 2048,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const block = msg.content[0];
-  return block.type === "text" ? block.text.trim() : "";
-}
-
 async function generate(prompt: string): Promise<string> {
-  // 1순위: Gemini 2.5-flash / 2.0-flash
   for (const model of ["gemini-2.5-flash", "gemini-2.0-flash"]) {
     try {
       const response = await genai.models.generateContent({ model, contents: prompt });
       return (response.text ?? "").trim();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      const isOverloaded = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("429") || msg.includes("404");
-      if (!isOverloaded) throw e;
-      // 과부하/404면 다음으로
+      const isRetryable = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("429");
+      if (isRetryable) continue; // 다음 모델 시도
+      throw e;
     }
   }
-
-  // 2순위: Claude Sonnet 4.5 폴백
-  console.log("[AI] Gemini 과부하 → Claude Sonnet 4.5로 전환");
-  return generateWithClaude(prompt);
+  throw new Error("Gemini API가 일시적으로 혼잡합니다. 1~2분 후 다시 시도해주세요.");
 }
 
 export async function analyzeForShorts(
