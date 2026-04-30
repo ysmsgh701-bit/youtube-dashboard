@@ -10,6 +10,7 @@ import { ShortsAnalysis } from "@/lib/gemini";
 interface ResultItem {
   analysis: ShortsAnalysis;
   sourceUrl: string;
+  transcript: string;
 }
 
 interface WeeklyItem {
@@ -58,7 +59,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setResults((prev) => [{ analysis: data.analysis, sourceUrl: url }, ...prev]);
+      setResults((prev) => [{ analysis: data.analysis, sourceUrl: url, transcript }, ...prev]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "분석 실패");
     } finally {
@@ -159,6 +160,7 @@ export default function Home() {
                   key={i}
                   analysis={item.analysis}
                   sourceUrl={item.sourceUrl}
+                  transcript={item.transcript}
                   onAddToWeekly={handleAddToWeekly}
                 />
               ))}

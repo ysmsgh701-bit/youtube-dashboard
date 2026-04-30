@@ -14,10 +14,11 @@ const CATEGORY_COLOR: Record<string, string> = {
 interface Props {
   analysis: ShortsAnalysis;
   sourceUrl: string;
+  transcript: string;
   onAddToWeekly: (item: { title: string; clipScript: string; sourceUrl: string }) => void;
 }
 
-export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Props) {
+export default function ShortsResult({ analysis, sourceUrl, transcript, onAddToWeekly }: Props) {
   const [selectedTitle, setSelectedTitle] = useState(0);
   const [editedScript, setEditedScript] = useState(analysis.clipScript);
   const [editedThumbnail, setEditedThumbnail] = useState(analysis.thumbnailText);
@@ -25,7 +26,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<{ step: number; total: number; message: string } | null>(null);
   const [downloadResult, setDownloadResult] = useState<{
-    ok: boolean; text: string; thumbnailPath?: string;
+    ok: boolean; text: string; thumbnailPath?: string; capcut?: string;
   } | null>(null);
 
   function copy(text: string, key: string) {
@@ -55,6 +56,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
           endTime: analysis.endTime,
           title: analysis.titles[selectedTitle],
           thumbnailText: editedThumbnail,
+          transcript,
         }),
       });
       if (!res.body) throw new Error("스트림 없음");
@@ -79,6 +81,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
               ok: true,
               text: `저장됨: ${ev.videoPath}`,
               thumbnailPath: ev.thumbnailPath,
+              capcut: ev.capcut,
             });
           } else if (ev.type === "error") {
             setDownloadResult({ ok: false, text: ev.message });
@@ -227,7 +230,7 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
             disabled={downloading}
             className="w-full py-2.5 text-xs font-medium rounded-xl bg-green-900/40 hover:bg-green-900/60 disabled:opacity-50 text-green-400 border border-green-800 transition-colors"
           >
-            {downloading ? "⏳ 처리 중..." : "⬇ 클립 다운로드 (썸네일 자동 생성)"}
+            {downloading ? "⏳ 처리 중..." : "⬇ 클립 다운로드 + CapCut 초안 자동 생성"}
           </button>
 
           {/* 진행 상태 */}
@@ -261,7 +264,12 @@ export default function ShortsResult({ analysis, sourceUrl, onAddToWeekly }: Pro
             }`}>
               <p className="break-all">{downloadResult.text}</p>
               {downloadResult.ok && downloadResult.thumbnailPath && (
-                <p className="text-green-500">썸네일: {downloadResult.thumbnailPath}</p>
+                <p className="text-green-500 break-all">썸네일: {downloadResult.thumbnailPath}</p>
+              )}
+              {downloadResult.capcut && (
+                <p className={`break-all mt-1 ${downloadResult.capcut.startsWith("✅") ? "text-blue-400" : "text-yellow-500"}`}>
+                  {downloadResult.capcut}
+                </p>
               )}
             </div>
           )}

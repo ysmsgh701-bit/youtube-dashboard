@@ -37,15 +37,18 @@ const DENO_PATH = (() => {
 })();
 
 const KOREAN_FONT = "C:/Windows/Fonts/malgunbd.ttf";
+const PYTHON_SCRIPT = path.join(process.cwd(), "scripts", "make_capcut_draft.py");
 
 // ─── 프로세스 실행 ───
-function run(cmd: string, args: string[]): Promise<{ ok: boolean; stderr: string }> {
+function run(cmd: string, args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args);
+    let stdout = "";
     let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
     proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => resolve({ ok: code === 0, stderr }));
-    proc.on("error", (e) => resolve({ ok: false, stderr: e.message }));
+    proc.on("close", (code) => resolve({ ok: code === 0, stdout, stderr }));
+    proc.on("error", (e) => resolve({ ok: false, stdout: "", stderr: e.message }));
   });
 }
 
@@ -60,6 +63,35 @@ function secToTime(s: number): string {
   const sec = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
+function secToSRT(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec - Math.floor(sec)) * 1000);
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ms).padStart(3,"0")}`;
+}
+
+// ─── SRT 생성 ───
+function buildSRT(timedText: string, clipStartSec: number, clipEndSec: number): string {
+  const lines = timedText.split("\n").flatMap((line) => {
+    const m = line.match(/\[(\d{2}:\d{2}:\d{2})\] (.+)/);
+    if (!m || !m[2].trim()) return [];
+    return [{ sec: timeToSec(m[1]), text: m[2].trim() }];
+  });
+
+  const clip = lines.filter((l) => l.sec >= clipStartSec - 1 && l.sec <= clipEndSec + 1);
+  let srt = "";
+  let idx = 1;
+  for (let i = 0; i < clip.length; i++) {
+    const relStart = Math.max(0, clip[i].sec - clipStartSec);
+    const relEnd = clip[i + 1]
+      ? Math.min(clipEndSec - clipStartSec, clip[i + 1].sec - clipStartSec)
+      : relStart + 3;
+    if (relEnd <= relStart) continue;
+    srt += `${idx++}\n${secToSRT(relStart)} --> ${secToSRT(relEnd)}\n${clip[i].text}\n\n`;
+  }
+  return srt;
+}
 
 // ─── ffmpeg 필터용 이스케이프 ───
 function escapeFontPath(p: string): string {
@@ -72,12 +104,12 @@ function escapeText(t: string): string {
 // ─── SSE 이벤트 타입 ───
 type SSEEvent =
   | { type: "progress"; step: number; total: number; message: string }
-  | { type: "done"; videoPath: string; thumbnailPath: string | null }
+  | { type: "done"; videoPath: string; thumbnailPath: string | null; capcut?: string }
   | { type: "error"; message: string };
 
 // ─── API Route (스트리밍) ───
 export async function POST(req: NextRequest) {
-  const { videoId, startTime, endTime, title, thumbnailText } = await req.json();
+  const { videoId, startTime, endTime, title, transcript, thumbnailText } = await req.json();
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -87,6 +119,8 @@ export async function POST(req: NextRequest) {
       };
 
       const tmpFiles: string[] = [];
+      const TOTAL = 4;
+
       try {
         if (!videoId || !startTime || !endTime) {
           send({ type: "error", message: "videoId, startTime, endTime가 필요합니다." });
@@ -108,12 +142,13 @@ export async function POST(req: NextRequest) {
 
         const rawVideo = path.join(clipsDir, `${safeTitle}_${timeTag}_raw.mp4`);
         const finalVideo = path.join(clipsDir, `${safeTitle}_${timeTag}.mp4`);
+        const srtFile  = path.join(clipsDir, `${safeTitle}_${timeTag}.srt`);
         const thumbRaw = path.join(clipsDir, `${safeTitle}_${timeTag}_thumb_raw.jpg`);
         const thumbFinal = path.join(clipsDir, `${safeTitle}_${timeTag}_thumb.jpg`);
         tmpFiles.push(rawVideo, thumbRaw);
 
-        // STEP 1: 다운로드
-        send({ type: "progress", step: 1, total: 3, message: "📥 영상 다운로드 중... (1~2분 소요)" });
+        // ── STEP 1: 클립 다운로드 ──
+        send({ type: "progress", step: 1, total: TOTAL, message: "📥 영상 다운로드 중... (1~2분 소요)" });
         const dlResult = await run(YTDLP_PATH, [
           url,
           "--download-sections", `*${startTime}-${adjustedEnd}`,
@@ -132,8 +167,8 @@ export async function POST(req: NextRequest) {
         }
         fs.copyFileSync(rawVideo, finalVideo);
 
-        // STEP 2: 썸네일 추출
-        send({ type: "progress", step: 2, total: 3, message: "🖼 썸네일 프레임 추출 중..." });
+        // ── STEP 2: 썸네일 추출 ──
+        send({ type: "progress", step: 2, total: TOTAL, message: "🖼 썸네일 프레임 추출 중..." });
         const thumbTimeSec = Math.min(10, (endSec - startSec) / 2);
         await run(FFMPEG_PATH, [
           "-ss", secToTime(thumbTimeSec),
@@ -143,12 +178,10 @@ export async function POST(req: NextRequest) {
           "-y", thumbRaw,
         ]);
 
-        // STEP 3: 썸네일 텍스트 오버레이
+        // 썸네일 텍스트 오버레이
         let finalThumb = thumbRaw;
         const fontExists = fs.existsSync("C:/Windows/Fonts/malgunbd.ttf");
-
         if (thumbnailText && fontExists && fs.existsSync(thumbRaw)) {
-          send({ type: "progress", step: 3, total: 3, message: "✏️ 썸네일 텍스트 합성 중..." });
           const text = escapeText(thumbnailText);
           const drawFilter = [
             `drawtext=fontfile='${escapeFontPath(KOREAN_FONT)}'`,
@@ -162,12 +195,8 @@ export async function POST(req: NextRequest) {
             `shadowx=3`,
             `shadowy=3`,
           ].join(":");
-
           const thumbResult = await run(FFMPEG_PATH, [
-            "-i", thumbRaw,
-            "-vf", drawFilter,
-            "-q:v", "2",
-            "-y", thumbFinal,
+            "-i", thumbRaw, "-vf", drawFilter, "-q:v", "2", "-y", thumbFinal,
           ]);
           if (thumbResult.ok) {
             finalThumb = thumbFinal;
@@ -178,7 +207,43 @@ export async function POST(req: NextRequest) {
           finalThumb = thumbFinal;
         }
 
-        // 임시 파일 정리
+        // ── STEP 3: SRT 생성 ──
+        let hasSRT = false;
+        if (transcript) {
+          send({ type: "progress", step: 3, total: TOTAL, message: "📝 자막 파일 생성 중..." });
+          const srtContent = buildSRT(transcript, startSec, endSec);
+          if (srtContent.trim()) {
+            fs.writeFileSync(srtFile, srtContent, "utf8");
+            tmpFiles.push(srtFile);
+            hasSRT = true;
+          }
+        }
+        if (!hasSRT) {
+          send({ type: "progress", step: 3, total: TOTAL, message: "📝 자막 데이터 없음 (건너뜀)" });
+        }
+
+        // ── STEP 4: CapCut 초안 생성 ──
+        send({ type: "progress", step: 4, total: TOTAL, message: "🎬 CapCut 초안 자동 생성 중..." });
+        const draftName = safeTitle.slice(0, 30);
+        const pyArgs = [PYTHON_SCRIPT, finalVideo, draftName];
+        if (hasSRT) pyArgs.push(srtFile);
+        const pyResult = await run("python", pyArgs);
+
+        let capcutDraft: string | undefined;
+        let capcutError: string | undefined;
+        if (pyResult.ok) {
+          try {
+            const parsed = JSON.parse(pyResult.stdout.trim());
+            if (parsed.ok) capcutDraft = parsed.draft;
+            else capcutError = parsed.error;
+          } catch {
+            capcutError = "초안 생성 응답 파싱 실패";
+          }
+        } else {
+          capcutError = pyResult.stderr.slice(0, 200) || "Python 실행 오류";
+        }
+
+        // ── 임시 파일 정리 ──
         for (const f of tmpFiles) {
           if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch { /* ignore */ }
         }
@@ -187,6 +252,9 @@ export async function POST(req: NextRequest) {
           type: "done",
           videoPath: finalVideo,
           thumbnailPath: fs.existsSync(finalThumb) ? finalThumb : null,
+          capcut: capcutDraft
+            ? `✅ CapCut 초안 생성됨: "${capcutDraft}" — CapCut 앱에서 열어서 확인/내보내기하세요`
+            : `⚠️ CapCut 초안 생성 실패: ${capcutError}`,
         });
       } catch (e: unknown) {
         for (const f of tmpFiles) {
